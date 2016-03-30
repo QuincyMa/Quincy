@@ -1,0 +1,124 @@
+---
+- name: configure the ops yum repos
+  gather_facts: no
+  hosts: 
+    - OSEv3:children
+  tasks:
+    - name: Copy Atomic OpenShift yum repository configuration
+      copy:
+        src: files/rhel7next.repo
+        dest: /etc/yum.repos.d
+
+    - name: Copy Atomic OpenShift yum repository certificate
+      copy:
+        src: files/client-cert.pem
+        dest: /var/lib/yum/
+
+    - name: Copy Atomic OpenShift yum repository key
+      copy:
+        src: files/client-key.pem
+        dest: /var/lib/yum/
+
+    - name: update the system
+      yum: name=* state=latest
+
+    - name: Restart the server
+      shell: sleep 2 && reboot
+      async: 1
+      poll: 0
+
+    - name: wait for the server
+      local_action: wait_for port=22 host={{ inventory_hostname }} state=started delay=30 timeout=300
+
+    - name: Copy Atomic OpenShift yum repository configuration
+      copy:
+        src: files/aos.repo
+        dest: /etc/yum.repos.d
+      when: openshift_ose_version is defined and openshift_ose_version == "3.1"
+
+
+    - name: Copy Atomic OpenShift yum repository configuration
+      copy:
+        src: files/aos32.repo
+        dest: /etc/yum.repos.d
+      when: openshift_ose_version is undefined or openshift_ose_version == "3.2"
+
+    - name: Copy Docker yum repository configuration
+      copy:
+        src: files/docker19.repo
+        dest: /etc/yum.repos.d
+      when: openshift_ose_version is undefined or openshift_ose_version == "3.2"
+
+
+
+- name: configure the ops yum repos
+  gather_facts: no
+  vars:
+    qe_openshift_kerberos_user: "{{ lookup('env','qe_openshift_kerberos_user') }}"
+    qe_openshift_token: "{{ lookup('env','qe_openshift_token') }}"
+    openshift_version: "{{ openshift_images_version | default('latest') }}"
+  hosts:
+    - OSEv3:children
+  tasks:
+    - name: Install default CA certificates
+      yum: pkg=ca-certificates
+
+    - name: Copy QE registry certificate
+      copy:
+        src: files/ca.crt
+        dest: /etc/pki/ca-trust/source/anchors/
+
+    - shell: update-ca-trust check
+    - shell: update-ca-trust enable
+    - shell: update-ca-trust extract
+
+    - name: Install docker
+      yum: pkg=docker
+
+    - name: enable and start the docker service
+      service: name=docker enabled=yes state=started
+      register: docker_start_result
+
+    - set_fact:
+        docker_status_changed = docker_start_result | changed
+
+    - name: Restart Docker
+      service: name=docker state=restarted
+      when: not docker_status_changed | default(false)
+
+    - shell: docker login -u "{{ qe_openshift_kerberos_user }}@redhat.com" -e "{{ qe_openshift_kerberos_user }}@redhat.com" -p "{{     qe_openshift_token }}" https://registry.qe.openshift.com
+
+    - name: Pull the OpenShift Enterprise Images
+      shell: docker pull "registry.qe.openshift.com/openshift3/{{ item }}:{{ openshift_version }}"
+      with_items:
+    #    - ose
+        - ose-deployer
+        - ose-docker-builder
+        - ose-docker-registry
+        - ose-haproxy-router
+        - ose-keepalived-ipfailover
+        - ose-pod
+        - ose-sti-builder
+      when: deployment_type == 'openshift-enterprise' or deployment_type == 'enterprise'
+    
+    - name: Pull the Atomic Enterprise Platform Images
+      shell: docker pull "registry.qe.openshift.com/aep3/{{ item }}:{{ openshift_version }}"
+      with_items:
+        #- aep
+        - aep-deployer
+        - aep-docker-builder
+        - aep-docker-registry
+        - aep-haproxy-router
+        - aep-keepalived-ipfailover
+        - aep-pod
+        - aep-sti-builder
+      when: deployment_type == 'atomic-enterprise'
+    
+    - name: Pull the S2I Images
+      shell: docker pull "registry.qe.openshift.com/openshift3/{{ item }}:latest"
+      with_items:
+        - nodejs-010-rhel7
+        - perl-516-rhel7
+        - php-55-rhel7
+        - python-33-rhel7
+        - ruby-20-rhel7  

@@ -1,0 +1,7 @@
+#!/bin/bash
+if test -e Installation; then
+    rm -rf Installation
+fi
+
+cp -r /home/fg/workspace/MyProjects/Installation .
+docker build   -t gce_aws_slave .
