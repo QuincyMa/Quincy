@@ -1,3 +1,6 @@
 *.repo
 *.pem
 ca.crt
+Images/gce_aws_slave/.aws/credentials
+Images/gce_aws_slave/.gce/gce.ini
+Images/gce_aws_slave/.gce/openshift-gce-devel-f4fa17c08d7f.p12
